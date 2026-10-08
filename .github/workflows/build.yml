@@ -1,21 +1,41 @@
-name: Build TERMULScan APK
+name: Build TERMULScan Production APK
 
 on:
+  repository_dispatch:
+    types: [termulscan-production]
   workflow_dispatch:
     inputs:
-      source_ref:
-        description: "TERMULSCAN branch/tag/commit to build"
-        required: false
-        default: "main"
+      source_sha:
+        description: "Exact TERMULSCAN commit SHA to build"
+        required: true
 
 permissions:
   contents: write
+
+concurrency:
+  group: termulscan-production
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Resolve source commit
+        id: source
+        env:
+          EVENT_SHA: ${{ github.event.client_payload.source_sha }}
+          MANUAL_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$EVENT_SHA"
+          if [ -z "$SOURCE_SHA" ]; then
+            SOURCE_SHA="$MANUAL_SHA"
+          fi
+          test -n "$SOURCE_SHA"
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Building TERMULSCAN commit: $SOURCE_SHA"
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -29,24 +49,40 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Checkout TERMULSCAN source
+      - name: Checkout exact TERMULSCAN commit
         env:
-          SOURCE_REF: ${{ inputs.source_ref || 'main' }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch "$SOURCE_REF" \
-            https://github.com/jntcargo053b-wq/TERMULSCAN.git termulscan-source
+          git init termulscan-source
+          cd termulscan-source
+          git remote add origin https://github.com/jntcargo053b-wq/TERMULSCAN.git
+          git fetch --depth 1 origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
 
-      - name: Verify fixed testing keystore
+      - name: Verify source identity
         working-directory: termulscan-source
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
-          test -f android/debug-fixed.keystore
-          keytool -list \
-            -keystore android/debug-fixed.keystore \
-            -storepass termulscan-debug \
-            -alias termulscan-debug >/dev/null
-          echo "Fixed testing keystore: OK"
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$SOURCE_SHA"
+          echo "Source verified: $ACTUAL_SHA"
+
+      - name: Prepare production keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.TERMULSCAN_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_B64" || {
+            echo "TERMULSCAN_KEYSTORE_BASE64 is not configured in TERMULSCAN-BUILD."
+            exit 1
+          }
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > termulscan-source/android/production.keystore
+          test -s termulscan-source/android/production.keystore
+          chmod 600 termulscan-source/android/production.keystore
+          echo "Production keystore prepared."
 
       - name: Get dependencies
         working-directory: termulscan-source
@@ -60,25 +96,46 @@ jobs:
         working-directory: termulscan-source
         run: flutter test
 
-      - name: Build testing APK
+      - name: Build production APK
         working-directory: termulscan-source
-        run: flutter build apk --release
+        env:
+          TERMULSCAN_KEYSTORE_PATH: ${{ github.workspace }}/termulscan-source/android/production.keystore
+          TERMULSCAN_KEYSTORE_PASSWORD: ${{ secrets.TERMULSCAN_KEYSTORE_PASSWORD }}
+          TERMULSCAN_KEY_ALIAS: ${{ secrets.TERMULSCAN_KEY_ALIAS }}
+          TERMULSCAN_KEY_PASSWORD: ${{ secrets.TERMULSCAN_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$TERMULSCAN_KEYSTORE_PASSWORD"
+          test -n "$TERMULSCAN_KEY_ALIAS"
+          test -n "$TERMULSCAN_KEY_PASSWORD"
+          flutter build apk --release
 
-      - name: Verify APK
+      - name: Verify production APK
         working-directory: termulscan-source
         run: |
           set -euo pipefail
-          test -s build/app/outputs/flutter-apk/app-release.apk
-          ls -lh build/app/outputs/flutter-apk/app-release.apk
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+          mkdir -p output
+          cp "$APK" output/TERMULScan-production.apk
+          ls -lh output/TERMULScan-production.apk
+
+      - name: Upload production APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TERMULScan-production-${{ github.run_number }}
+          path: termulscan-source/output/TERMULScan-production.apk
+          retention-days: 14
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
-          TAG="testing-${GITHUB_RUN_NUMBER}"
+          TAG="production-${GITHUB_RUN_NUMBER}"
           gh release create "$TAG" \
-            "termulscan-source/build/app/outputs/flutter-apk/app-release.apk" \
+            termulscan-source/output/TERMULScan-production.apk \
             --repo "$GITHUB_REPOSITORY" \
-            --title "TERMULScan Testing Build #${GITHUB_RUN_NUMBER}" \
-            --notes "Automated testing APK built from jntcargo053b-wq/TERMULSCAN ref: $SOURCE_REF."
+            --title "TERMULScan Production #${GITHUB_RUN_NUMBER}" \
+            --notes "Automated production APK from TERMULSCAN commit ${SOURCE_SHA}."
