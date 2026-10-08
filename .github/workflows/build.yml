@@ -31,17 +31,21 @@ jobs:
 
       - name: Checkout TERMULSCAN source
         env:
-          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_REF: ${{ inputs.source_ref || 'main' }}
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch "$SOURCE_REF"             https://github.com/jntcargo053b-wq/TERMULSCAN.git termulscan-source
+          git clone --depth 1 --branch "$SOURCE_REF" \
+            https://github.com/jntcargo053b-wq/TERMULSCAN.git termulscan-source
 
       - name: Verify fixed testing keystore
         working-directory: termulscan-source
         run: |
           set -euo pipefail
           test -f android/debug-fixed.keystore
-          keytool -list             -keystore android/debug-fixed.keystore             -storepass termulscan-debug             -alias termulscan-debug >/dev/null
+          keytool -list \
+            -keystore android/debug-fixed.keystore \
+            -storepass termulscan-debug \
+            -alias termulscan-debug >/dev/null
           echo "Fixed testing keystore: OK"
 
       - name: Get dependencies
@@ -73,4 +77,8 @@ jobs:
         run: |
           set -euo pipefail
           TAG="testing-${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG"             "termulscan-source/build/app/outputs/flutter-apk/app-release.apk"             --repo "$GITHUB_REPOSITORY"             --title "TERMULScan Testing Build #${GITHUB_RUN_NUMBER}"             --notes "Automated testing APK built from jntcargo053b-wq/TERMULSCAN ref: ${{ inputs.source_ref }}."
+          gh release create "$TAG" \
+            "termulscan-source/build/app/outputs/flutter-apk/app-release.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "TERMULScan Testing Build #${GITHUB_RUN_NUMBER}" \
+            --notes "Automated testing APK built from jntcargo053b-wq/TERMULSCAN ref: $SOURCE_REF."
