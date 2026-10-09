@@ -22,6 +22,7 @@ concurrency:
 jobs:
   resolve:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Resolve latest successfully validated source commit
         id: source
@@ -85,6 +86,7 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.should_build == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -160,12 +162,19 @@ jobs:
           test -n "$TERMULSCAN_KEY_PASSWORD"
           flutter build apk --release
 
-      - name: Verify production APK
+      - name: Verify production APK and signature
         working-directory: termulscan-source
         run: |
           set -euo pipefail
           APK="build/app/outputs/flutter-apk/app-release.apk"
           test -s "$APK"
+
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$SDK_ROOT"
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose "$APK"
+
           mkdir -p output
           cp "$APK" output/TERMULScan-production.apk
           ls -lh output/TERMULScan-production.apk
@@ -188,3 +197,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "TERMULScan Production $SOURCE_SHA" \
             --notes "Automated production APK from validated TERMULSCAN commit $SOURCE_SHA."
+
+      - name: Remove temporary production keystore
+        if: always()
+        run: rm -f termulscan-source/android/production.keystore
