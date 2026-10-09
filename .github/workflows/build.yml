@@ -1,8 +1,6 @@
 name: Build TERMULScan Production APK
 
 on:
-  repository_dispatch:
-    types: [termulscan-production]
   workflow_dispatch:
     inputs:
       source_sha:
@@ -19,20 +17,18 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Resolve source commit
         id: source
         env:
-          EVENT_SHA: ${{ github.event.client_payload.source_sha }}
-          MANUAL_SHA: ${{ inputs.source_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
-          SOURCE_SHA="$EVENT_SHA"
-          if [ -z "$SOURCE_SHA" ]; then
-            SOURCE_SHA="$MANUAL_SHA"
-          fi
           test -n "$SOURCE_SHA"
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "source_sha must be a full 40-character commit SHA."
+            exit 1
+          fi
           echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
           echo "Building TERMULSCAN commit: $SOURCE_SHA"
 
