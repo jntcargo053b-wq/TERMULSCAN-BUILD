@@ -1,11 +1,14 @@
 name: Build TERMULScan Production APK
 
 on:
+  schedule:
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       source_sha:
-        description: "Exact TERMULSCAN commit SHA to build"
-        required: true
+        description: "Optional exact TERMULSCAN commit SHA (defaults to latest validated main commit)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -15,23 +18,75 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      should_build: ${{ steps.source.outputs.should_build }}
     steps:
-      - name: Resolve source commit
+      - name: Resolve latest successfully validated source commit
         id: source
         env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          MANUAL_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
-          test -n "$SOURCE_SHA"
-          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "source_sha must be a full 40-character commit SHA."
-            exit 1
-          fi
-          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
-          echo "Building TERMULSCAN commit: $SOURCE_SHA"
 
+          if [ -n "$MANUAL_SHA" ]; then
+            SOURCE_SHA="$MANUAL_SHA"
+            if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "source_sha must be a full 40-character commit SHA." >&2
+              exit 1
+            fi
+            echo "Manual build requested for TERMULSCAN commit: $SOURCE_SHA"
+          else
+            BRANCH_JSON="$(curl --fail --silent --show-error \
+              https://api.github.com/repos/jntcargo053b-wq/TERMULSCAN/git/ref/heads/main)"
+            MAIN_SHA="$(jq -r '.object.sha // empty' <<< "$BRANCH_JSON")"
+            test -n "$MAIN_SHA"
+
+            RUNS_JSON="$(curl --fail --silent --show-error \
+              'https://api.github.com/repos/jntcargo053b-wq/TERMULSCAN/actions/runs?branch=main&event=push&status=completed&per_page=1')"
+            RUN_SHA="$(jq -r '.workflow_runs[0].head_sha // empty' <<< "$RUNS_JSON")"
+            RUN_CONCLUSION="$(jq -r '.workflow_runs[0].conclusion // empty' <<< "$RUNS_JSON")"
+
+            echo "TERMULSCAN main SHA: $MAIN_SHA"
+            echo "Latest completed push run SHA: ${RUN_SHA:-none}"
+            echo "Latest completed push conclusion: ${RUN_CONCLUSION:-none}"
+
+            if [ "$RUN_SHA" != "$MAIN_SHA" ] || [ "$RUN_CONCLUSION" != "success" ]; then
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              echo "Source HEAD has not yet passed its latest CI run. Will check again on the next scheduled run."
+              exit 0
+            fi
+            SOURCE_SHA="$RUN_SHA"
+          fi
+
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this source commit was already released
+        id: dedupe
+        if: steps.source.outputs.should_build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "source-$SOURCE_SHA" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "Production APK already released for source commit $SOURCE_SHA; skipping duplicate build."
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      should_build: ${{ steps.dedupe.outputs.should_build || steps.source.outputs.should_build }}
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -47,7 +102,7 @@ jobs:
 
       - name: Checkout exact TERMULSCAN commit
         env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
         run: |
           set -euo pipefail
           git init termulscan-source
@@ -59,7 +114,7 @@ jobs:
       - name: Verify source identity
         working-directory: termulscan-source
         env:
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
         run: |
           set -euo pipefail
           ACTUAL_SHA="$(git rev-parse HEAD)"
@@ -119,19 +174,18 @@ jobs:
       - name: Upload production APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TERMULScan-production-${{ github.run_number }}
+          name: TERMULScan-production-${{ needs.resolve.outputs.source_sha }}
           path: termulscan-source/output/TERMULScan-production.apk
           retention-days: 14
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
         run: |
           set -euo pipefail
-          TAG="production-${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" \
+          gh release create "source-$SOURCE_SHA" \
             termulscan-source/output/TERMULScan-production.apk \
             --repo "$GITHUB_REPOSITORY" \
-            --title "TERMULScan Production #${GITHUB_RUN_NUMBER}" \
-            --notes "Automated production APK from TERMULSCAN commit ${SOURCE_SHA}."
+            --title "TERMULScan Production $SOURCE_SHA" \
+            --notes "Automated production APK from validated TERMULSCAN commit $SOURCE_SHA."
