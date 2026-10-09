@@ -1,6 +1,8 @@
 name: Build TERMULScan Production APK
 
 on:
+  push:
+    branches: [ main ]
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
