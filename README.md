@@ -1,47 +1,40 @@
 # TERMULSCAN Build
 
-Production build repository for TERMULScan.
+Repository production build untuk TERMULScan.
 
-## Automatic pipeline
+## Pipeline otomatis
 
-The source repository `jntcargo053b-wq/TERMULSCAN` runs:
+TERMULSCAN menjalankan CI pada push ke `main` dan pull request:
+1. `flutter pub get`
+2. `flutter analyze`
+3. `flutter test`
 
-1. `flutter analyze`
-2. `flutter test`
-3. testing APK build
-4. dispatches `termulscan-production` here with the exact source commit SHA
+TERMULSCAN-BUILD memeriksa commit `main` terbaru setiap 15 menit dan memverifikasi bahwa commit tersebut sama dengan commit pada push workflow CI terbaru yang sukses. Jika CI belum selesai, gagal, atau commit telah dibangun sebelumnya, pipeline tidak membuat APK duplikat. Pada pemeriksaan berikutnya, proses akan dicoba lagi.
 
-This repository then:
+Jika commit valid, repository ini:
+1. Checkout SHA TERMULSCAN yang tepat.
+2. Menjalankan ulang analyze dan test.
+3. Menggunakan keystore production dari GitHub Secrets.
+4. Membuat `TERMULScan-production.apk`.
+5. Mengunggah APK sebagai Actions artifact.
+6. Menerbitkan GitHub Release untuk commit sumber tersebut.
 
-1. checks out that exact TERMULSCAN commit
-2. runs analyze and tests again
-3. injects the production signing keystore
-4. builds `TERMULScan-production.apk`
-5. uploads the APK as a GitHub Actions artifact
-6. publishes a GitHub Release containing the APK
+Tidak dibutuhkan `TERMULSCAN_BUILD_TOKEN`, dan tidak perlu memindahkan APK secara manual. Pemicu terjadwal berjalan paling sering setiap 15 menit; eksekusi dapat sedikit terlambat sesuai antrean GitHub Actions.
 
-No APK copying or manual file transfer is required.
+## Required secrets di TERMULSCAN-BUILD
 
-## Required secrets
-
-Configure these **repository secrets in TERMULSCAN-BUILD**:
-
-- `TERMULSCAN_KEYSTORE_BASE64` — base64 of the production `.keystore` / `.jks`
+- `TERMULSCAN_KEYSTORE_BASE64` — base64 keystore production `.keystore` / `.jks`
 - `TERMULSCAN_KEYSTORE_PASSWORD`
 - `TERMULSCAN_KEY_ALIAS`
 - `TERMULSCAN_KEY_PASSWORD`
 
-Configure this **repository secret in TERMULSCAN**:
+Keystore production tidak pernah dikomit ke repository.
 
-- `TERMULSCAN_BUILD_TOKEN` — fine-grained GitHub token that can create a repository dispatch event for `TERMULSCAN-BUILD`. GitHub documents that repository dispatch requires Contents: write for a fine-grained token. 
+## Build manual
 
-The production keystore is never committed to either repository.
-
-## Manual production rebuild
-
-Use **Actions → Build TERMULScan Production APK → Run workflow** and provide the exact TERMULSCAN commit SHA.
+Buka **Actions → Build TERMULScan Production APK → Run workflow**. Biarkan `source_sha` kosong untuk memilih commit `main` terakhir yang sudah tervalidasi, atau isi SHA lengkap 40 karakter untuk membangun commit tertentu. Commit yang sudah dirilis akan dilewati untuk mencegah rilis duplikat.
 
 ## Output
 
-- GitHub Actions artifact: `TERMULScan-production-<run>`
-- GitHub Release asset: `TERMULScan-production.apk`
+- Actions artifact: `TERMULScan-production-<source-sha>`
+- GitHub Release: `source-<source-sha>` dengan APK `TERMULScan-production.apk`
