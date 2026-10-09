@@ -20,9 +20,6 @@ concurrency:
 jobs:
   resolve:
     runs-on: ubuntu-latest
-    outputs:
-      source_sha: ${{ steps.source.outputs.sha }}
-      should_build: ${{ steps.source.outputs.should_build }}
     steps:
       - name: Resolve latest successfully validated source commit
         id: source
