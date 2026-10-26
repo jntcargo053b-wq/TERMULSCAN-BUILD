@@ -40,19 +40,11 @@ jobs:
             fi
             echo "Manual build requested for TERMULSCAN commit: $SOURCE_SHA"
           else
-            BRANCH_JSON="$(curl --fail --silent --show-error \
-              https://api.github.com/repos/jntcargo053b-wq/TERMULSCAN/git/ref/heads/main \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "X-GitHub-Api-Version: 2022-11-28")
+            BRANCH_JSON="$(gh api repos/jntcargo053b-wq/TERMULSCAN/git/ref/heads/main)"
             MAIN_SHA="$(jq -r '.object.sha // empty' <<< "$BRANCH_JSON")"
             test -n "$MAIN_SHA"
 
-            RUNS_JSON="$(curl --fail --silent --show-error \
-              'https://api.github.com/repos/jntcargo053b-wq/TERMULSCAN/actions/runs?branch=main&event=push&status=completed&per_page=1' \
-              -H 'Accept: application/vnd.github+json' \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H 'X-GitHub-Api-Version: 2022-11-28')"
+            RUNS_JSON="$(gh api 'repos/jntcargo053b-wq/TERMULSCAN/actions/runs?branch=main&event=push&status=completed&per_page=1')"
             RUN_SHA="$(jq -r '.workflow_runs[0].head_sha // empty' <<< "$RUNS_JSON")"
             RUN_CONCLUSION="$(jq -r '.workflow_runs[0].conclusion // empty' <<< "$RUNS_JSON")"
 
