@@ -9,17 +9,18 @@ TERMULSCAN menjalankan CI pada push ke `main` dan pull request:
 2. `flutter analyze`
 3. `flutter test`
 
-TERMULSCAN-BUILD memeriksa commit `main` terbaru setiap 15 menit dan memverifikasi bahwa commit tersebut sama dengan commit pada push workflow CI terbaru yang sukses. Jika CI belum selesai, gagal, atau commit telah dibangun sebelumnya, pipeline tidak membuat APK duplikat. Pada pemeriksaan berikutnya, proses akan dicoba lagi.
+TERMULSCAN-BUILD memeriksa commit `main` terbaru setiap 5 menit dan memverifikasi bahwa commit tersebut sama dengan commit pada push workflow CI terbaru yang sukses. Jika CI belum selesai, gagal, atau commit telah dirilis sebelumnya, pipeline tidak membuat APK duplikat. Pada pemeriksaan berikutnya, proses akan dicoba lagi.
 
 Jika commit valid, repository ini:
 1. Checkout SHA TERMULSCAN yang tepat.
 2. Menjalankan ulang analyze dan test.
 3. Menggunakan keystore production dari GitHub Secrets.
-4. Membuat `TERMULScan-production.apk`.
-5. Mengunggah APK sebagai Actions artifact.
-6. Menerbitkan GitHub Release untuk commit sumber tersebut.
+4. Membuat dan memverifikasi `TERMULScan-production.apk`.
+5. Menerbitkan APK sebagai aset GitHub Release untuk commit sumber tersebut.
 
-Tidak dibutuhkan `TERMULSCAN_BUILD_TOKEN`, dan tidak perlu memindahkan APK secara manual. Pemicu terjadwal berjalan paling sering setiap 15 menit; eksekusi dapat sedikit terlambat sesuai antrean GitHub Actions.
+**Distribusi hanya melalui GitHub Releases.** Workflow tidak mengunggah Actions artifact dan tidak memerlukan unduhan artifact terpisah.
+
+Tidak dibutuhkan `TERMULSCAN_BUILD_TOKEN`, dan tidak perlu memindahkan APK secara manual. Eksekusi terjadwal dapat sedikit terlambat sesuai antrean GitHub Actions.
 
 ## Required secrets di TERMULSCAN-BUILD
 
@@ -36,5 +37,7 @@ Buka **Actions → Build TERMULScan Production APK → Run workflow**. Biarkan `
 
 ## Output
 
-- Actions artifact: `TERMULScan-production-<source-sha>`
-- GitHub Release: `source-<source-sha>` dengan APK `TERMULScan-production.apk`
+- **GitHub Release:** tag `source-<source-sha>`
+- **APK Release asset:** `TERMULScan-production.apk`
+
+Unduh APK dari halaman Releases: https://github.com/jntcargo053b-wq/TERMULSCAN-BUILD/releases
