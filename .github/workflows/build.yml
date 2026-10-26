@@ -179,13 +179,6 @@ jobs:
           cp "$APK" output/TERMULScan-production.apk
           ls -lh output/TERMULScan-production.apk
 
-      - name: Upload production APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: TERMULScan-production-${{ needs.resolve.outputs.source_sha }}
-          path: termulscan-source/output/TERMULScan-production.apk
-          retention-days: 14
-
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
